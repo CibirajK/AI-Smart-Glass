@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Text Extractor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 flex items-center justify-center min-h-screen">
+
+    <div class="w-full max-w-2xl mx-auto p-6 md:p-8 bg-white rounded-2xl shadow-lg">
+        
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Smart Glass OCR </h1>
+            <p class="text-gray-500 mt-2">Upload an image to see the text within it.</p>
+        </div>
+
+        <!-- File Upload Section -->
+        <div class="mb-6">
+            <label for="image-upload" class="cursor-pointer w-full inline-flex items-center justify-center px-6 py-3 border-2 border-dashed border-gray-300 rounded-lg text-sm font-medium text-gray-600 hover:text-blue-600 hover:border-blue-500 transition-colors duration-300 bg-gray-50 hover:bg-blue-50">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                <span>Select an image</span>
+            </label>
+            <input id="image-upload" type="file" class="hidden" accept="image/*">
+        </div>
+
+        <!-- Loading Indicator -->
+        <div id="loader" class="hidden flex-col items-center justify-center my-8">
+            <div class="loader"></div>
+            <p class="mt-4 text-gray-600">Extracting text, please wait...</p>
+        </div>
+
+        <!-- Results Section -->
+        <div id="results" class="hidden space-y-6">
+            <!-- Image Preview -->
+            <div>
+                <h2 class="text-xl font-semibold text-gray-800 mb-3">Image Preview:</h2>
+                <div class="flex justify-center p-4 border border-gray-200 rounded-lg bg-gray-50">
+                    <img id="image-preview" src="#" alt="Uploaded Image Preview" class="max-w-full max-h-96 rounded-md shadow-sm object-contain">
+                </div>
+            </div>
+
+            <!-- Extracted Text -->
+            <div>
+                <h2 class="text-xl font-semibold text-gray-800 mb-3">Extracted Text:</h2>
+                <div id="text-output" class="p-4 border border-gray-200 rounded-lg bg-gray-50 min-h-[100px] whitespace-pre-wrap text-gray-700">
+                    <!-- Extracted text will be inserted here -->
+                </div>
+            </div>
+        </div>
+        
+         <!-- Error Message -->
+        <div id="error-message" class="hidden mt-4 text-center p-4 bg-red-100 text-red-700 rounded-lg"></div>
+
+    </div>
+
+    <script>
+        // Get references to the DOM elements
+        const imageUpload = document.getElementById('image-upload');
+        const imagePreview = document.getElementById('image-preview');
+        const textOutput = document.getElementById('text-output');
+        const loader = document.getElementById('loader');
+        const resultsDiv = document.getElementById('results');
+        const errorMessage = document.getElementById('error-message');
+
+        // Listen for when a user selects a file
+        imageUpload.addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (!file) {
+                return;
+            }
+
+            // Reset UI
+            resultsDiv.classList.add('hidden');
+            errorMessage.classList.add('hidden');
+            loader.classList.remove('hidden');
+            loader.classList.add('flex');
+            textOutput.textContent = '';
+
+
+            // Read the file as a Base64 string
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = async () => {
+                const base64ImageData = reader.result.split(',')[1];
+                
+                // Display the image preview
+                imagePreview.src = reader.result;
+                resultsDiv.classList.remove('hidden');
+
+                // Prepare the payload for the Gemini API
+                const payload = {
+                    contents: [
+                        {
+                            parts: [
+                                { text: "Extract all text from this image. Provide only the text content." },
+                                {
+                                    inlineData: {
+                                        mimeType: file.type,
+                                        data: base64ImageData
+                                    }
+                                }
+                            ]
+                        }
+                    ],
+                };
+                
+                // Call the Gemini API
+                try {
+                    const apiKey = "AIzaSyAlkSvaO10GTuCcjTyb3lbx8N2sIGd7WKQ"; // API key is handled by the environment
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                    
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`API request failed with status ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    
+                    let extractedText = "No text found or could not be extracted.";
+                    if (result.candidates && result.candidates.length > 0 &&
+                        result.candidates[0].content && result.candidates[0].content.parts &&
+                        result.candidates[0].content.parts.length > 0) {
+                        extractedText = result.candidates[0].content.parts[0].text;
+                    }
+
+                    // Display the extracted text
+                    textOutput.textContent = extractedText;
+
+                } catch (error) {
+                    console.error('Error extracting text:', error);
+                    errorMessage.textContent = 'An error occurred while extracting text. Please try again.';
+                    errorMessage.classList.remove('hidden');
+                    resultsDiv.classList.add('hidden');
+                } finally {
+                    // Hide the loader
+                    loader.classList.add('hidden');
+                    loader.classList.remove('flex');
+                }
+            };
+
+            reader.onerror = (error) => {
+                console.error('Error reading file:', error);
+                errorMessage.textContent = 'Could not read the selected file. Please try another image.';
+                errorMessage.classList.remove('hidden');
+                loader.classList.add('hidden');
+                loader.classList.remove('flex');
+            };
+        });
+    </script>
+</body>
+</html>
